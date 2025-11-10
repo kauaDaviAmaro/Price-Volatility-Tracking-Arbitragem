@@ -4,6 +4,7 @@ Orchestrates the scraping data flow
 """
 import asyncio
 import csv
+import json
 import logging
 import re
 import time
@@ -302,17 +303,42 @@ class DataPipeline:
         return flattened_results
     
     def _get_csv_fieldnames(self, flattened_results: List[Dict]) -> List[str]:
-        """Extract and sort all unique field names from results"""
+        """Extract and sort all unique field names from results, filtering invalid ones"""
         fieldnames = set()
         for result in flattened_results:
-            fieldnames.update(result.keys())
+            # Only add valid fieldnames
+            valid_keys = [k for k in result.keys() if self._is_valid_fieldname(k)]
+            fieldnames.update(valid_keys)
         return sorted(fieldnames)
+    
+    def _is_valid_fieldname(self, fieldname: str) -> bool:
+        """Check if a fieldname is valid (not a generic column_* name)"""
+        if not fieldname or not isinstance(fieldname, str):
+            return False
+        # Filter out generic column names like "column_42", "column_43", etc.
+        if fieldname.startswith('column_') and fieldname[7:].isdigit():
+            return False
+        return True
+    
+    def _filter_valid_fieldnames(self, fieldnames: List[str]) -> List[str]:
+        """Filter out invalid fieldnames"""
+        return [f for f in fieldnames if self._is_valid_fieldname(f)]
     
     def _convert_result_to_row(self, result: Dict) -> Dict:
         """Convert a result dictionary to a CSV-compatible row"""
         row = {}
         for key, value in result.items():
-            if isinstance(value, list):
+            # Skip invalid fieldnames
+            if not self._is_valid_fieldname(key):
+                continue
+            # Handle nested dictionaries by converting to string
+            if isinstance(value, dict):
+                # Convert dict to JSON-like string representation
+                try:
+                    row[key] = json.dumps(value, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    row[key] = str(value)
+            elif isinstance(value, list):
                 row[key] = ', '.join(str(v) for v in value)
             else:
                 row[key] = value
@@ -326,10 +352,12 @@ class DataPipeline:
                 writer.writeheader()
     
     def _get_all_fieldnames(self, listings: List[Dict]) -> List[str]:
-        """Extract all unique field names from listings"""
+        """Extract all unique field names from listings, filtering invalid ones"""
         fieldnames = set()
         for listing in listings:
-            fieldnames.update(listing.keys())
+            # Only add valid fieldnames
+            valid_keys = [k for k in listing.keys() if self._is_valid_fieldname(k)]
+            fieldnames.update(valid_keys)
         return sorted(fieldnames)
     
     async def save_page_to_csv(
@@ -357,13 +385,15 @@ class DataPipeline:
         # Get all fieldnames from all results seen so far
         all_fieldnames = self._get_all_fieldnames(page_listings)
         
-        # If file exists, read existing fieldnames and merge
+        # If file exists, read existing fieldnames and merge (filtering invalid ones)
         if filepath.exists():
             try:
                 with open(filepath, 'r', newline='', encoding='utf-8') as f:
                     # Only read the header row
                     reader = csv.DictReader(f)
                     existing_fieldnames = reader.fieldnames or []
+                    # Filter out invalid fieldnames from existing CSV
+                    existing_fieldnames = self._filter_valid_fieldnames(existing_fieldnames)
                     all_fieldnames = sorted(set(all_fieldnames) | set(existing_fieldnames))
             except Exception as e:
                 logger.warning(f"Error reading existing CSV headers: {e}. Using new fieldnames only.")
@@ -415,6 +445,8 @@ class DataPipeline:
                 with open(filepath, 'r', newline='', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
                     existing_fieldnames = reader.fieldnames or []
+                    # Filter out invalid fieldnames from existing CSV
+                    existing_fieldnames = self._filter_valid_fieldnames(existing_fieldnames)
                     all_fieldnames = sorted(set(all_fieldnames) | set(existing_fieldnames))
                     
                     # Read existing rows by URL
@@ -462,7 +494,8 @@ class DataPipeline:
         
         filepath = self.output_dir / filename
         
-        listing_fieldnames = set(listing.keys())
+        # Only include valid fieldnames from listing
+        listing_fieldnames = set([k for k in listing.keys() if self._is_valid_fieldname(k)])
         
         existing_data = {}
         existing_fieldnames = []
@@ -471,6 +504,8 @@ class DataPipeline:
                 with open(filepath, 'r', newline='', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
                     existing_fieldnames = reader.fieldnames or []
+                    # Filter out invalid fieldnames from existing CSV
+                    existing_fieldnames = self._filter_valid_fieldnames(existing_fieldnames)
                     listing_fieldnames.update(existing_fieldnames)
                     
                     for row in reader:
@@ -512,7 +547,8 @@ class DataPipeline:
         all_fieldnames = sorted(listing_fieldnames)
         
         if not all_fieldnames and listing:
-            all_fieldnames = sorted(listing.keys())
+            # Only include valid fieldnames
+            all_fieldnames = sorted([k for k in listing.keys() if self._is_valid_fieldname(k)])
         
         if listing_url and listing_url not in existing_data:
             existing_data[listing_url] = listing
