@@ -14,8 +14,10 @@ services:
     environment:
       # Docker detection
       - DOCKER_CONTAINER=true
+      # Display for Xvfb (non-headless mode)
+      - DISPLAY=:99
       # Browser Configuration
-      - HEADLESS=${HEADLESS:-True}
+      - HEADLESS=${HEADLESS:-False}
       - BROWSER_TYPE=${BROWSER_TYPE:-chromium}
       
       # Proxy Configuration
@@ -71,6 +73,8 @@ services:
       # - PROXY_2=${PROXY_2:-}
     shm_size: '2gb'  # Increase shared memory for Playwright
     restart: unless-stopped
+    # Start Xvfb before the application
+    command: sh -c "Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset & python -m src.scraper_app"
     networks:
       - scraper-network
 

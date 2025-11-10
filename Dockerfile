@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright + Xvfb for headless display
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -69,7 +70,7 @@ RUN mkdir -p /app/data /app/.cache/robots
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DISPLAY=:99
-ENV HEADLESS=True
+ENV HEADLESS=False
 
 # Default command (can be overridden in docker-compose)
 CMD ["python", "-m", "src.scraper_app"]

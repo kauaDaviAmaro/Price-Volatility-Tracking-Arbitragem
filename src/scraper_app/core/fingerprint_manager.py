@@ -362,7 +362,7 @@ class FingerprintManager:
     
     def get_http_headers(self, fingerprint: BrowserFingerprint) -> Dict[str, str]:
         """
-        Generate HTTP headers that match the fingerprint
+        Generate HTTP headers that match the fingerprint (enhanced for Cloudflare evasion)
         
         Args:
             fingerprint: BrowserFingerprint to use

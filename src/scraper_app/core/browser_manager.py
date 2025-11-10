@@ -38,10 +38,19 @@ class BrowserManager:
             fingerprint_manager: FingerprintManager instance (creates new if None)
             fingerprint: Specific fingerprint to use (generates new if None)
         """
-        # Force headless in Docker environments
+        # In Docker, use Xvfb to run in non-headless mode (better for Cloudflare evasion)
+        # Only force headless if explicitly set or if no display available
         if is_docker_environment():
-            self.headless = True
-            logger.info("Docker environment detected - forcing headless mode")
+            # Check if DISPLAY is available (Xvfb should set this)
+            display = os.getenv("DISPLAY")
+            if display:
+                # Xvfb is available, run in non-headless mode
+                self.headless = False
+                logger.info(f"Docker environment detected with DISPLAY={display} - using non-headless mode for better evasion")
+            else:
+                # No display, must use headless
+                self.headless = True
+                logger.warning("Docker environment detected but no DISPLAY available - forcing headless mode")
         else:
             self.headless = headless if headless is not None else Config.HEADLESS
         
@@ -105,7 +114,7 @@ class BrowserManager:
         # Launch browser
         browser_args = []
         if Config.BROWSER_TYPE == "chromium":
-            # Add stealth arguments to avoid bot detection
+            # Add stealth arguments to avoid bot detection (enhanced for Cloudflare evasion)
             browser_args.extend([
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
@@ -119,10 +128,26 @@ class BrowserManager:
                 "--window-size=1920,1080",
                 "--start-maximized",
                 "--lang=pt-BR,pt",
-                "--accept-lang=pt-BR,pt;q=0.9"
+                "--accept-lang=pt-BR,pt;q=0.9",
+                # Additional stealth flags
+                "--disable-blink-features=AutomationControlled",
+                "--exclude-switches=enable-automation",
+                "--disable-extensions-file-access-check",
+                "--disable-extensions-http-throttling",
+                "--disable-component-extensions-with-background-pages",
+                "--disable-default-apps",
+                "--mute-audio",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-features=TranslateUI",
+                "--disable-ipc-flooding-protection"
             ])
             
-            # Force headless mode arguments when in headless mode
+            # Only add headless arguments if actually running in headless mode
+            # In Docker with Xvfb, we run in non-headless mode for better evasion
             if self.headless:
                 browser_args.extend([
                     "--headless=new",
@@ -130,14 +155,18 @@ class BrowserManager:
                     "--disable-software-rasterizer",
                     "--disable-extensions"
                 ])
+            else:
+                # Non-headless mode - still disable GPU if in Docker
+                if is_docker_environment():
+                    browser_args.extend([
+                        "--disable-gpu",  # GPU not available in Docker/Xvfb
+                        "--disable-software-rasterizer"
+                    ])
         
         logger.debug(f"Launching browser with headless={self.headless}, args={browser_args[:5]}...")
         
-        # Always force headless=True when in Docker, regardless of config
+        # Use the configured headless value (may be False in Docker with Xvfb)
         launch_headless = self.headless
-        if is_docker_environment():
-            launch_headless = True
-            logger.info("Forcing headless=True for Docker environment")
         
         self.browser = await browser_launcher.launch(
             headless=launch_headless,
@@ -191,34 +220,83 @@ class BrowserManager:
         anti_detect_script = self.fingerprint_manager.get_anti_detect_script(self.current_fingerprint)
         await context.add_init_script(anti_detect_script)
         
-        # Override webdriver property
+        # Enhanced anti-bot script for Cloudflare evasion
         await context.add_init_script("""
+            // Remove webdriver property completely
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
             });
             
-            // Override plugins
+            // Override plugins with realistic data
             Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
+                get: () => {
+                    const plugins = [];
+                    for (let i = 0; i < 5; i++) {
+                        plugins.push({
+                            name: `Plugin ${i}`,
+                            description: `Plugin ${i} Description`,
+                            filename: `plugin${i}.dll`,
+                            length: Math.floor(Math.random() * 10) + 1
+                        });
+                    }
+                    return plugins;
+                }
             });
             
-            // Override languages
+            // Override languages to match locale
             Object.defineProperty(navigator, 'languages', {
-                get: () => ['en-US', 'en']
+                get: () => ['pt-BR', 'pt', 'en-US', 'en']
             });
             
-            // Chrome runtime
+            // Chrome runtime (important for Cloudflare detection)
             window.chrome = {
-                runtime: {}
+                runtime: {},
+                loadTimes: function() {},
+                csi: function() {},
+                app: {}
             };
             
-            // Permissions
+            // Override permissions API
             const originalQuery = window.navigator.permissions.query;
             window.navigator.permissions.query = (parameters) => (
                 parameters.name === 'notifications' ?
                     Promise.resolve({ state: Notification.permission }) :
                     originalQuery(parameters)
             );
+            
+            // Override getBattery to return realistic values
+            if (navigator.getBattery) {
+                navigator.getBattery = () => Promise.resolve({
+                    charging: true,
+                    chargingTime: 0,
+                    dischargingTime: Infinity,
+                    level: 0.95
+                });
+            }
+            
+            // Override connection API
+            if (navigator.connection) {
+                Object.defineProperty(navigator, 'connection', {
+                    get: () => ({
+                        effectiveType: '4g',
+                        rtt: 50,
+                        downlink: 10,
+                        saveData: false
+                    })
+                });
+            }
+            
+            // Remove automation indicators
+            delete navigator.__proto__.webdriver;
+            
+            // Override toString methods to hide automation
+            const originalToString = Function.prototype.toString;
+            Function.prototype.toString = function() {
+                if (this === navigator.webdriver) {
+                    return 'function webdriver() { [native code] }';
+                }
+                return originalToString.apply(this, arguments);
+            };
         """)
         
         logger.debug("Anti-bot measures configured")

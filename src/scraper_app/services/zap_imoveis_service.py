@@ -176,9 +176,18 @@ class ZapImoveisService:
         try:
             page_start_time = time.time()
             
+            # Add initial delay to avoid rapid-fire requests (Cloudflare detection)
+            await asyncio.sleep(random.uniform(2.0, 4.0))
+            
             # Navigate to page with networkidle wait for better content loading in Docker
             # Use 'networkidle' instead of 'domcontentloaded' for Docker to ensure JS executes
             wait_strategy = "networkidle" if os.getenv("DOCKER_CONTAINER") == "true" else Config.WAIT_UNTIL
+            
+            # Use referer to make navigation look more natural
+            await self.page.set_extra_http_headers({
+                "Referer": "https://www.google.com/" if "page=" not in page_url else "https://www.zapimoveis.com.br/venda/"
+            })
+            
             await self.page.goto(page_url, wait_until=wait_strategy, timeout=Config.NAVIGATION_TIMEOUT)
             
             # Debug: Check page title and URL to see what loaded
