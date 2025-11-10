@@ -1145,10 +1145,14 @@ class DataExtractor:
             # Find carousel container
             carousel = await self.page.query_selector('[data-testid="carousel-photos"]')
             if not carousel:
+                logger.debug("Carousel container not found")
                 return images
+            
+            logger.debug("Carousel container found, extracting images...")
             
             # Get all carousel items
             carousel_items = await carousel.query_selector_all('.carousel-photos--item')
+            logger.debug(f"Found {len(carousel_items)} carousel items")
             
             for item in carousel_items:
                 try:
@@ -1189,10 +1193,11 @@ class DataExtractor:
                     logger.debug(f"Error extracting image from carousel item: {e}")
                     continue
             
+            logger.info(f"Extracted {len(images)} image URLs from carousel")
             return images
             
         except Exception as e:
-            logger.debug(f"Error extracting listing images: {e}")
+            logger.error(f"Error extracting listing images: {e}", exc_info=True)
             return []
     
     async def extract_contact_info(self) -> Dict[str, Optional[str]]:
@@ -1282,6 +1287,9 @@ class DataExtractor:
             if images:
                 deep_data['images'] = images
                 deep_data['image_count'] = len(images)
+                logger.info(f"Extracted {len(images)} images from listing")
+            else:
+                logger.debug("No images extracted from listing")
             
             return deep_data
             

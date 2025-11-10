@@ -318,13 +318,3 @@ class HumanBehavior:
         
         # Minimal delay after page loads
         await self.random_delay(0.05, 0.1)
-        
-        # Skip scroll/mouse movement for maximum speed
-        # if random.random() < 0.1:  # 10% chance
-        #     if self.scroll_enabled:
-        #         await self.scroll_page(page, random.randint(100, 300), "down", smooth=False)
-        #     elif self.mouse_movement_enabled:
-        #         viewport = page.viewport_size
-        #         if viewport:
-        #             await self.random_mouse_movement(page, viewport["width"], viewport["height"])
-

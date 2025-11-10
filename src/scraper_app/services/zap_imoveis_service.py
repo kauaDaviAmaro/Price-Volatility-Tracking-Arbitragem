@@ -323,8 +323,19 @@ class ZapImoveisService:
                 logger.info(f"Deep scraping listing {i}/{len(listings)}: {listing_url}")
                 # Visit the listing page and perform deep scraping
                 deep_data = await self.scrape_listing(listing_url, deep_scrape=True)
+                # Log images found
+                if deep_data.get("images"):
+                    logger.info(f"Found {len(deep_data['images'])} images in deep_data for {listing_url}")
+                else:
+                    logger.debug(f"No images in deep_data for {listing_url}")
+                
                 # Merge deep data with basic data (deep data takes precedence)
                 merged_listing = {**listing, **deep_data}
+                
+                # Log after merge
+                if merged_listing.get("images"):
+                    logger.info(f"After merge: {len(merged_listing['images'])} images in merged_listing")
+                
                 deep_scraped_listings.append(merged_listing)
                 
                 # Save immediately if callback provided

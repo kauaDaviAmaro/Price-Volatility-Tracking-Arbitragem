@@ -167,7 +167,6 @@ class DataPipeline:
         service = ZapImoveisService(page, self.human_behavior)
         
         if self._is_search_url(url):
-            # Scrape search results page with per-page save callback (basic data only)
             max_pages = Config.MAX_PAGES
             page_callback = await self._create_page_callback(url)
             listings = await service.scrape_search_results(
@@ -176,16 +175,17 @@ class DataPipeline:
                 page_callback=page_callback
             )
             
-            # Perform deep scraping AFTER all search results are collected
             if listings:
                 logger.info(f"Search completed. Starting deep scraping on {len(listings)} listings...")
                 
-                # Create callback to save each listing immediately after deep scraping
                 async def save_deep_scraped_listing(listing: Dict) -> None:
-                    """Callback to save each listing immediately after deep scraping"""
-                    # Download images if enabled
-                    if Config.SAVE_IMAGES and listing.get("images"):
-                        await self._download_listing_images(listing)
+                    if Config.SAVE_IMAGES:
+                        images = listing.get("images")
+                        if images:
+                            logger.info(f"Found {len(images) if isinstance(images, list) else 'unknown'} images for listing {listing.get('url', 'unknown')}")
+                            await self._download_listing_images(listing)
+                        else:
+                            logger.debug(f"No images found for listing {listing.get('url', 'unknown')}")
                     
                     await self.save_single_listing_to_csv(listing, url)
                 
@@ -193,10 +193,8 @@ class DataPipeline:
                 logger.info(f"Deep scraping completed for all {len(listings)} listings")
             
             await browser_manager.mark_proxy_success()
-            # Return as dict with listings array
             return {"url": url, "listings": listings, "type": "search_results"}
         else:
-            # Scrape single listing with deep scraping
             result = await service.scrape_listing(url, deep_scrape=True)
             await browser_manager.mark_proxy_success()
             return result
@@ -459,65 +457,82 @@ class DataPipeline:
         base_url: str,
         filename: str = "scraped_data.csv"
     ) -> None:
-        """
-        Saves a single listing to CSV, updating existing row or appending new one
-        
-        Args:
-            listing: Single listing dictionary with deep scraped data
-            base_url: Base URL of the search
-            filename: Output CSV filename
-        """
         if not listing:
             return
         
         filepath = self.output_dir / filename
         
-        # Get all fieldnames from this listing
         listing_fieldnames = set(listing.keys())
         
-        # If file exists, read existing data and fieldnames
         existing_data = {}
         existing_fieldnames = []
-        if filepath.exists():
+        if filepath.exists() and filepath.stat().st_size > 0:
             try:
                 with open(filepath, 'r', newline='', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
                     existing_fieldnames = reader.fieldnames or []
                     listing_fieldnames.update(existing_fieldnames)
                     
-                    # Read existing rows by URL
                     for row in reader:
                         url = row.get('url')
                         if url:
                             existing_data[url] = row
             except Exception as e:
-                logger.warning(f"Error reading existing CSV: {e}. Will append.")
+                logger.warning(f"Error reading existing CSV: {e}. Will create new file.")
                 existing_data = {}
+                existing_fieldnames = []
         
-        # Get listing URL
         listing_url = listing.get('url')
         if listing_url:
-            # Update existing data or add new
             if listing_url in existing_data:
-                existing_data[listing_url].update(listing)
+                existing_row = existing_data[listing_url].copy()
+                for key, value in listing.items():
+                    existing_value = existing_row.get(key)
+                    
+                    def is_empty(val):
+                        if val is None:
+                            return True
+                        if isinstance(val, str):
+                            return val.strip() == ''
+                        if isinstance(val, list):
+                            return len(val) == 0
+                        return False
+                    
+                    if not is_empty(value):
+                        existing_row[key] = value
+                    elif not is_empty(existing_value):
+                        continue
+                
+                existing_data[listing_url] = existing_row
             else:
                 existing_data[listing_url] = listing
+        else:
+            existing_data['listing_' + str(len(existing_data))] = listing
         
-        # Write all data back to CSV
         all_fieldnames = sorted(listing_fieldnames)
+        
+        if not all_fieldnames and listing:
+            all_fieldnames = sorted(listing.keys())
+        
+        if listing_url and listing_url not in existing_data:
+            existing_data[listing_url] = listing
+        
+        if not all_fieldnames:
+            logger.warning(f"No fieldnames available for CSV, skipping write")
+            return
+        
         with open(filepath, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=all_fieldnames)
             writer.writeheader()
             
             for listing_data in existing_data.values():
                 row = self._convert_result_to_row(listing_data)
-                # Ensure all fieldnames are present in row
                 for fieldname in all_fieldnames:
                     if fieldname not in row:
                         row[fieldname] = None
                 writer.writerow(row)
         
-        logger.debug(f"Saved listing {listing_url} to CSV")
+        logger.debug(f"Saved listing {listing_url} to CSV with {len(all_fieldnames)} columns")
     
     def save_to_csv(self, filename: str = "scraped_data.csv") -> None:
         """
@@ -625,10 +640,13 @@ class DataPipeline:
             listing: Listing dictionary with images URLs
         """
         if not Config.SAVE_IMAGES:
+            logger.debug("SAVE_IMAGES is disabled, skipping image download")
             return
         
         images = listing.get("images", [])
+        logger.debug(f"Attempting to download images. Type: {type(images)}, Value: {images}")
         if not images:
+            logger.debug("No images found in listing")
             return
         
         # Handle case where images might be a string (from CSV)
@@ -643,6 +661,7 @@ class DataPipeline:
         listing_id = self._get_listing_id_from_url(listing_url)
         image_dir = self.output_dir / "images" / listing_id
         image_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Downloading images to: {image_dir}")
         
         # Download images
         downloaded_paths = []
@@ -704,24 +723,17 @@ class DataPipeline:
     
     async def run(self) -> None:
         """
-        Runs the complete pipeline: scraping, saving and image download
+        Runs the complete pipeline: scraping and saving
+        Note: Images are downloaded during deep scraping, not here
         """
-        # Process URLs
+        # Process URLs (includes deep scraping which downloads images)
         results = await self.process_urls()
         
         # Save to CSV
         self.save_to_csv()
         
-        # Download images if enabled
-        if Config.SAVE_IMAGES:
-            logger.info("Downloading images...")
-            for result in results:
-                if "error" not in result and "url" in result:
-                    # Create directory for listing images
-                    listing_id = result.get("url", "").split("/")[-1] or "unknown"
-                    image_path = self.output_dir / "images" / listing_id
-                    
-                    await self.download_images(result, image_path)
+        # Images are already downloaded during deep scraping in process_urls()
+        # No need to download them again here
         
         logger.info("Pipeline run completed")
 
