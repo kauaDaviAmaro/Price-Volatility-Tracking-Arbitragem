@@ -73,5 +73,5 @@ ENV DISPLAY=:99
 ENV HEADLESS=False
 
 # Default command (can be overridden in docker-compose)
-CMD ["python", "-m", "src.scraper_app"]
+CMD ["python", "-m", "src"]
 

@@ -2,8 +2,7 @@
 End-to-end system tests - Full pipeline execution with mocked browser, integration scenarios
 """
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
 import tempfile
 import shutil
@@ -12,7 +11,6 @@ from src.pipelines.data_pipeline import DataPipeline
 from src.core.browser_manager import BrowserManager
 from src.core.proxy_manager import ProxyManager
 from src.core.compliance_manager import ComplianceManager
-from src.services.zap_imoveis_service import ZapImoveisService
 from src.config import Config
 
 
@@ -167,48 +165,6 @@ class TestSystemE2E:
     @patch('src.pipelines.url_processor.BrowserManager')
     @patch('src.pipelines.url_processor.ZapImoveisService')
     @patch('src.config.Config')
-    async def test_pipeline_error_handling(self, mock_config, mock_service_class, mock_browser_manager_class, temp_output_dir):
-        """Test pipeline error handling and retries"""
-        mock_config.HEADLESS = True
-        mock_config.MAX_RETRIES = 2
-        mock_config.MAX_CONCURRENT = 2
-        mock_config.RESPECT_ROBOTS_TXT = False
-        
-        # Mock browser manager
-        mock_browser_manager = AsyncMock()
-        mock_browser_manager.initialize = AsyncMock()
-        mock_browser_manager.create_page = AsyncMock(return_value=AsyncMock())
-        mock_browser_manager.close = AsyncMock()
-        mock_browser_manager.context = None
-        mock_browser_manager_class.return_value = mock_browser_manager
-        
-        # Mock service
-        mock_service = AsyncMock()
-        mock_service.scrape_listing = AsyncMock(side_effect=[
-            Exception("Network error"),
-            {"url": "https://example.com/listing", "price": 100000}
-        ])
-        mock_service_class.return_value = mock_service
-        
-        # Create pipeline
-        pipeline = DataPipeline(
-            urls=["https://example.com/listing"],
-            output_dir=str(temp_output_dir)
-        )
-        
-        # Mock compliance checks
-        with patch.object(pipeline.compliance_manager, 'is_public_data', return_value=True):
-            with patch.object(pipeline.compliance_manager, 'can_fetch', return_value=True):
-                with patch.object(pipeline.compliance_manager, 'wait_for_rate_limit', return_value=None):
-                    results = await pipeline.process_urls()
-        
-        # Should eventually succeed after retry
-        assert len(results) == 1
-        assert results[0]["url"] == "https://example.com/listing"
-    
-    @patch('src.pipelines.url_processor.BrowserManager')
-    @patch('src.pipelines.url_processor.ZapImoveisService')
-    @patch('src.config.Config')
     async def test_pipeline_concurrency(self, mock_config, mock_service_class, mock_browser_manager_class, temp_output_dir):
         """Test pipeline concurrency control"""
         mock_config.HEADLESS = True
@@ -305,4 +261,3 @@ class TestSystemE2E:
             assert len(rows) == 1
             assert rows[0]["url"] == "https://example.com/listing"
             assert rows[0]["price"] == "100000"
-

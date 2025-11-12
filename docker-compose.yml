@@ -27,7 +27,8 @@ services:
       - PROXY_COOLDOWN_SECONDS=${PROXY_COOLDOWN_SECONDS:-300}
       - PROXY_CONFIG_FILE=${PROXY_CONFIG_FILE:-}
 
-      - MAX_PAGES=${MAX_PAGES:-20}
+      # Pagination Configuration
+      - MAX_PAGES=${MAX_PAGES:-100}
       
       # Fingerprint Configuration
       - FINGERPRINT_REGION=${FINGERPRINT_REGION:-US}
@@ -55,6 +56,11 @@ services:
       # Timeout Configuration
       - PAGE_LOAD_TIMEOUT=${PAGE_LOAD_TIMEOUT:-30000}
       - NAVIGATION_TIMEOUT=${NAVIGATION_TIMEOUT:-30000}
+      - WAIT_UNTIL=${WAIT_UNTIL:-domcontentloaded}
+      
+      # Page Processing Speed Configuration
+      - MIN_PAGE_DELAY=${MIN_PAGE_DELAY:-2.0}
+      - MAX_PAGE_DELAY=${MAX_PAGE_DELAY:-5.0}
       
       # Concurrency Configuration
       - MAX_CONCURRENT=${MAX_CONCURRENT:-3}
@@ -62,6 +68,7 @@ services:
       # Output Configuration
       - OUTPUT_DIR=${OUTPUT_DIR:-data}
       - SAVE_IMAGES=${SAVE_IMAGES:-True}
+      - IMAGE_DOWNLOAD_DELAY=${IMAGE_DOWNLOAD_DELAY:-1}
       
       # Logging Configuration
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -74,7 +81,7 @@ services:
     shm_size: '2gb'  # Increase shared memory for Playwright
     restart: unless-stopped
     # Start Xvfb before the application
-    command: sh -c "Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset & python -m src.scraper_app"
+    command: sh -c "Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset & python -m src"
     networks:
       - scraper-network
 

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
 from playwright.async_api import async_playwright
 
-from src.scraper_app.core.human_behavior import HumanBehavior
+from src.core.human_behavior import HumanBehavior
 
 
 @pytest.fixture
